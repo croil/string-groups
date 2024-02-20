@@ -38,6 +38,7 @@ public class Main {
                 aggregator.aggregate(GroupType.UNION);
                 long end = System.currentTimeMillis();
                 System.out.printf("Algorithm running time: %s seconds%n", (end - start) / 1000d);
+                System.out.println("Output file is: out.txt");
             }
         } catch (InvalidPathException ex) {
             System.err.printf("Invalid path in file %s on position %s", ex.getInput(), ex.getIndex());

@@ -10,15 +10,13 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 public class StringAggregator {
     private final Path in;
     private final Path out;
     private final Lexer lexer;
     private final DSU dsu;
-    private final Map<Integer, Row> rows;
-    private final List<Map<Long, Integer>> columnData;
+    private final List<Map<Double, Integer>> columnData;
 
 
     public StringAggregator(Path in, Path out) {
@@ -26,75 +24,73 @@ public class StringAggregator {
         this.out = out;
         this.lexer = new Lexer();
         this.dsu = new DSU();
-        this.rows = new HashMap<>();
         this.columnData = new ArrayList<>(16);
     }
 
-    public void aggregate(GroupType type) {
+    public void aggregate() {
+        try (BufferedReader reader = Files.newBufferedReader(in, StandardCharsets.UTF_8)) {
+            forEachLine(reader, this::processLine);
+            columnData.clear();
+        } catch (IOException e) {
+            System.err.printf("I/O exception occurs: %s%n", e.getMessage());
+        }
+
         try (
                 BufferedReader reader = Files.newBufferedReader(in, StandardCharsets.UTF_8);
-                BufferedWriter writer = Files.newBufferedWriter(out, StandardCharsets.UTF_8);
+                BufferedWriter writer = Files.newBufferedWriter(out, StandardCharsets.UTF_8)
         ) {
-
-            String strLine;
-            int row = 0;
-            while ((strLine = reader.readLine()) != null) {
-                if (lexer.load(strLine)) {
-                    processLine(row);
-                    row++;
-                }
-            }
-            var unions = dsu.unions(rows, type);
-            writeGroupsNumber(writer, unions.size());
+            forEachLine(reader, dsu::setUnion);
+            var unions = dsu.unions();
+            writeGroupsNumber(writer, unions);
             unions.forEach(withCounter((i, group) -> writeGroup(writer, i + 1, group)));
         } catch (IOException e) {
             System.err.printf("I/O exception occurs: %s%n", e.getMessage());
         }
+
+
     }
 
-    private void writeGroupsNumber(BufferedWriter writer, int size) throws IOException {
+    private void writeGroupsNumber(BufferedWriter writer, Collection<Set<String>> unions) throws IOException {
+        long size = unions.stream().filter(s -> s.size() > 1).count();
         writer.write(String.format("%s", size));
         writer.newLine();
         writer.newLine();
     }
 
-    private void processLine(int row) {
-        List<Long> line = new ArrayList<>();
-        dsu.makeSet(row);
-        String strWord;
-        int column = 0;
-        while ((strWord = lexer.nextWord()) != null) {
-            if (column == columnData.size()) {
-                columnData.add(new HashMap<>());
-            }
-            var map = columnData.get(column);
-            long word = strWord.isEmpty() ? 0 : Long.parseLong(strWord);
-            line.add(word);
-            if (word != 0) {
-                if (map.containsKey(word)) {
-                    dsu.union(row, map.get(word));
-                } else {
-                    map.put(word, row);
+    private void processLine(int row, String line) {
+        if (lexer.load(line)) {
+            dsu.makeSet(row);
+            String strWord;
+            int column = 0;
+            while ((strWord = lexer.next()) != null) {
+                if (column == columnData.size()) {
+                    columnData.add(new HashMap<>());
                 }
+                var map = columnData.get(column);
+                if (!lexer.isBlankWord(strWord)) {
+                    double hash = Double.parseDouble(strWord);
+                    if (map.containsKey(hash)) {
+                        dsu.union(row, map.get(hash));
+                    } else {
+                        map.put(hash, row);
+                    }
+                }
+                column++;
             }
-            column++;
         }
-        rows.put(row, new Row(line, line.hashCode()));
     }
 
-
-    private void writeGroup(BufferedWriter writer, int n, Set<Integer> lines) {
+    private void writeGroup(BufferedWriter writer, int n, Set<String> lines) {
         try {
             writer.write(String.format("Group %s%n", n));
-            for (int line : lines) {
-                String str = rows.get(line)
-                        .hashedRow()
-                        .stream()
-                        .map(i -> "\"%s\"".formatted(i == 0 ? "" : Long.toString(i)))
-                        .collect(Collectors.joining(";"));
-                writer.write(str.isEmpty() ? "\"\"" : str);
-                writer.newLine();
-            }
+            lines.forEach(line -> {
+                try {
+                    writer.write(line);
+                    writer.newLine();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
             writer.newLine();
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -105,6 +101,16 @@ public class StringAggregator {
     private static <T> Consumer<T> withCounter(BiConsumer<Integer, T> consumer) {
         AtomicInteger counter = new AtomicInteger(0);
         return value -> consumer.accept(counter.getAndIncrement(), value);
+    }
+
+    private static void forEachLine(BufferedReader reader, BiConsumer<Integer, String> consumer) throws
+            IOException {
+        String line;
+        int row = 0;
+        while ((line = reader.readLine()) != null) {
+            consumer.accept(row, line);
+            row++;
+        }
     }
 
 

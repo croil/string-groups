@@ -1,4 +1,3 @@
-import org.example.GroupType;
 import org.example.StringAggregator;
 import org.junit.jupiter.api.*;
 
@@ -11,99 +10,92 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class StringGroupTest {
 
     private static Path root;
 
     @BeforeAll
-    public static void init() {
-        try {
-            root = Files.createTempDirectory("groups" + System.currentTimeMillis());
-        } catch (IOException e) {
-            System.err.println("Couldn't run tests. I/O error occurs: " + e.getMessage());
-        }
+    public static void init() throws IOException {
+        root = Files.createTempDirectory("groups" + System.currentTimeMillis());
     }
 
     @Test
     public void emptyFileTest() {
         Path in = createFile("empty.in");
         Path out = createFile("empty.out");
-        test(in, out, new String[]{}, new String[]{}, 0);
+        test(in, out, Set.of(), Set.of(), 0);
     }
 
     @Test
     public void oneGroupOneStringTest() {
         Path in = createFile("oneGroupOneString.in");
         Path out = createFile("oneGroupOneString.out");
-        String[] oneGroupOneString = new String[]{
-                collect(111, 222, 333)
-        };
-        test(in, out, oneGroupOneString, oneGroupOneString, 1);
+        Set<String> oneGroupOneString = Collections.singleton(collect(111, 222, 333));
+        test(in, out, oneGroupOneString, List.of(oneGroupOneString), 0);
     }
 
     @Test
     public void oneGroupMultiStringsTest() {
         Path in = createFile("oneGroupMultiStrings.in");
         Path out = createFile("oneGroupMultiStrings.out");
-        String[] oneGroupMultiStrings = new String[]{
+        Set<String> oneGroupMultiStrings = newHashSet(
                 collect(111, 222, 333),
                 collect(100, 222, 301),
-                collect(300, 0, 333),
-        };
-        test(in, out, oneGroupMultiStrings, oneGroupMultiStrings, 1);
+                collect(300, 0, 333)
+        );
+        test(in, out, oneGroupMultiStrings, List.of(oneGroupMultiStrings), 1);
     }
 
     @Test
     public void manyAloneGroupsTest() {
         Path in = createFile("manyAloneGroups.in");
         Path out = createFile("manyAloneGroups.out");
-        String[] manyAloneGroups = new String[]{
+        Set<String> manyAloneGroups = Stream.of(
                 collect(111, 222, 333),
                 collect(222, 333, 111),
                 collect(123, 345, 456),
                 collect(0),
                 collect(0, 0, 0, 0)
-        };
-        test(in, out, manyAloneGroups, manyAloneGroups, 5);
+        ).collect(Collectors.toCollection(HashSet::new));
+        test(in, out, manyAloneGroups, List.of(manyAloneGroups), 0);
     }
 
     @Test
     public void emptyStringsTest() {
         Path in = createFile("emptyStrings.in");
         Path out = createFile("emptyStrings.out");
-        String[] emptyStrings = new String[]{
+        Set<String> emptyStrings = Stream.of(
                 collect(0),
                 collect(0, 0, 0),
                 collect(0, 0),
                 collect(0, 0, 0, 0, 0)
-        };
-        test(in, out, emptyStrings, emptyStrings, 4);
+        ).collect(Collectors.toCollection(HashSet::new));
+        test(in, out, emptyStrings, List.of(emptyStrings), 0);
     }
 
     @Test
     public void doubleStringTest() {
         Path in = createFile("doubleString.in");
         Path out = createFile("doubleString.out");
-        String[] doubleString = new String[]{
+        Set<String> doubleString = newHashSet(
                 collect(111, 222, 333),
                 collect(111, 222, 333),
                 collect(222, 333, 444),
-                collect(222, 333, 444),
-        };
-        test(in, out, doubleString, new String[]{
-                collect(111, 222, 333), collect(222, 333, 444)
-        }, 2);
+                collect(222, 333, 444)
+        );
+        test(in, out, doubleString, List.of(doubleString), 0);
     }
 
     @Test
     public void anyGroupsTest() {
         Path in = createFile("anyGroups.in");
         Path out = createFile("anyGroups.out");
-        String[] anyGroups = new String[]{
+        String[] any = new String[]{
                 collect(111, 123, 222),
                 collect(200, 123, 100),
                 collect(300, 0, 100),
@@ -112,7 +104,18 @@ public class StringGroupTest {
                 collect(555, 666, 777, 888),
                 collect(0, 0, 666, 777, 888)
         };
-        test(in, out, anyGroups, anyGroups, 4);
+        test(in, out, newHashSet(any),
+                List.of(
+                        newHashSet(any[0], any[1], any[2]),
+                        newHashSet(any[3], any[4]),
+                        newHashSet(any[5]),
+                        newHashSet(any[6])
+                ),
+                2);
+    }
+
+    private Set<String> newHashSet(String... arr) {
+        return new HashSet<>(Arrays.asList(arr));
     }
 
     @Test
@@ -126,9 +129,12 @@ public class StringGroupTest {
                 collect(893281, 13, 3301),
                 collect(343, 2379423, 115)
         };
-        test(in, out, arr, new String[]{
-                arr[0], arr[3], arr[1], arr[4], arr[2]
-        }, 3);
+        test(in, out, newHashSet(arr),
+                List.of(
+                        newHashSet(arr[0], arr[3]),
+                        newHashSet(arr[1], arr[4]),
+                        newHashSet(arr[2])
+                ), 2);
     }
 
 
@@ -142,12 +148,14 @@ public class StringGroupTest {
                 "\"123\";\"123\";",
                 ";;;"
         };
-        test(in, out, arr, new String[]{}, 0);
+        test(in, out, newHashSet(arr), List.of(List.of(";;;", "\"123\";\"123\";")), 0);
     }
 
     @Test
     @Timeout(30)
     public void bigDataTest() {
+        Runtime runtime = Runtime.getRuntime();
+        long bytes = runtime.totalMemory() - runtime.freeMemory();
         URL url = getClass().getClassLoader().getResource("Ing.txt");
         if (url == null) {
             System.err.println("Add data file in resource folder");
@@ -156,7 +164,9 @@ public class StringGroupTest {
         Path in = Path.of(new File(url.getFile()).getAbsolutePath());
         Path out = in.resolveSibling("bigData.out");
         StringAggregator aggregator = new StringAggregator(in, out);
-        aggregator.aggregate(GroupType.UNION);
+        aggregator.aggregate();
+        long afterBytes = runtime.totalMemory() - runtime.freeMemory();
+        Assertions.assertTrue(afterBytes - bytes < 1 << 30);
     }
 
     @AfterAll
@@ -165,10 +175,10 @@ public class StringGroupTest {
     }
 
 
-    private void test(Path in, Path out, String[] set, String[] expected, int groupsNumber) {
+    private void test(Path in, Path out, Set<String> set, Collection<Collection<String>> expected, int groupsNumber) {
         writeStrings(in, set);
         StringAggregator aggregator = new StringAggregator(in, out);
-        aggregator.aggregate(GroupType.ALL);
+        aggregator.aggregate();
         checkStrings(out, groupsNumber, expected);
     }
 
@@ -199,9 +209,9 @@ public class StringGroupTest {
     }
 
 
-    private void writeStrings(Path in, String... strings) {
+    private void writeStrings(Path in, Set<String> strings) {
         try (BufferedWriter writer = Files.newBufferedWriter(in, StandardCharsets.UTF_8)) {
-            Arrays.stream(strings).forEach(s -> {
+            strings.forEach(s -> {
                 try {
                     writer.write(s);
                     writer.newLine();
@@ -214,22 +224,23 @@ public class StringGroupTest {
         }
     }
 
-    private void checkStrings(Path out, int groupNumber, String... strings) {
+    private void checkStrings(Path out, int groupNumber, Collection<Collection<String>> strings) {
         Pattern groupNamePattern = Pattern.compile("Group.*");
         try (BufferedReader reader = Files.newBufferedReader(out, StandardCharsets.UTF_8)) {
             String line = reader.readLine();
             Assertions.assertNotNull(line);
             Assertions.assertEquals(groupNumber, Integer.parseInt(line));
             int count = 0;
+            List<String> stringList = strings.stream().flatMap(Collection::stream).toList();
             while ((line = reader.readLine()) != null) {
                 if (line.isEmpty() || groupNamePattern.matcher(line).matches()) {
                     continue;
                 }
-                Assertions.assertTrue(count < strings.length);
-                Assertions.assertEquals(line, strings[count]);
+                Assertions.assertTrue(count < stringList.size());
+                Assertions.assertEquals(line, stringList.get(count));
                 count++;
             }
-            Assertions.assertEquals(count, strings.length);
+            Assertions.assertEquals(count, stringList.size());
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

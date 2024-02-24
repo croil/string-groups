@@ -35,7 +35,7 @@ public class Main {
             } else {
                 StringAggregator aggregator = new StringAggregator(in, out);
                 long start = System.currentTimeMillis();
-                aggregator.aggregate(GroupType.UNION);
+                aggregator.aggregate();
                 long end = System.currentTimeMillis();
                 System.out.printf("Algorithm running time: %s seconds%n", (end - start) / 1000d);
                 System.out.println("Output file is: out.txt");
